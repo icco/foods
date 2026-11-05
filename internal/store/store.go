@@ -212,9 +212,9 @@ func (s *Store) UpdateRow(ctx context.Context, userID, id string, model any, cha
 }
 
 // FindRequest returns a logging request seen before, or nil.
-func (s *Store) FindRequest(ctx context.Context, userID, requestID string) (*RequestLog, error) {
+func (s *Store) FindRequest(ctx context.Context, userID, kind, requestID string) (*RequestLog, error) {
 	var r RequestLog
-	res := s.db.WithContext(ctx).Where("user_id = ? AND request_id = ?", userID, requestID).Limit(1).Find(&r)
+	res := s.db.WithContext(ctx).Where("user_id = ? AND kind = ? AND request_id = ?", userID, kind, requestID).Limit(1).Find(&r)
 	if res.Error != nil {
 		return nil, res.Error
 	}
@@ -244,7 +244,7 @@ func (s *Store) CreateFoodLogs(ctx context.Context, userID, requestID, date stri
 				return err
 			}
 		}
-		return tx.Create(&RequestLog{UserID: userID, RequestID: requestID, Date: date, IDs: ids}).Error
+		return tx.Create(&RequestLog{UserID: userID, Kind: RequestFood, RequestID: requestID, Date: date, IDs: ids}).Error
 	})
 	if isUnique(err) {
 		return nil, ErrDuplicate
@@ -308,7 +308,7 @@ func (s *Store) CreateWorkout(ctx context.Context, userID, requestID string, w *
 		if err := tx.Create(w).Error; err != nil {
 			return err
 		}
-		return tx.Create(&RequestLog{UserID: userID, RequestID: requestID, Date: w.Date, IDs: []string{w.ID}}).Error
+		return tx.Create(&RequestLog{UserID: userID, Kind: RequestWorkout, RequestID: requestID, Date: w.Date, IDs: []string{w.ID}}).Error
 	})
 	if isUnique(err) {
 		return ErrDuplicate

@@ -156,8 +156,8 @@ func TestToolsEndToEnd(t *testing.T) {
 	must(t, cs, "log_entries", map[string]any{"client_request_id": "c9b1e7d0-breakfast", "water_ml": 1}, "Already logged")
 	logID := regexp.MustCompile(`log_ids=\[([0-9a-f-]{36})`).FindStringSubmatch(out)[1]
 
-	must(t, cs, "log_entries", map[string]any{"client_request_id": "c9b1e7d0-dinner", "meal_type": "dinner", "eaten": false, "entries": []any{map[string]any{"food_id": oats, "grams": 100}}}, "Logged 1 entry.")
-	must(t, cs, "get_day", map[string]any{}, "4 food entries and 0 workouts on 2026-03-14.", "- breakfast: 40 g Oats (eaten) 152 kcal", "(planned)", "250 ml water", "Including planned:", "Left today (negative is over): 1806 kcal")
+	must(t, cs, "log_entries", map[string]any{"client_request_id": "c9b1e7d0-dinner", "meal_type": "dinner", "eaten": false, "note": "leftovers", "mindfulness_score": 7, "entries": []any{map[string]any{"food_id": oats, "grams": 100}}}, "Logged 1 entry.")
+	must(t, cs, "get_day", map[string]any{}, "4 food entries and 0 workouts on 2026-03-14.", "- breakfast: 40 g Oats (eaten) 152 kcal", "(planned)", `note: "leftovers" mindfulness 7/10`, "250 ml water", "Including planned:", "Left today (negative is over): 1806 kcal")
 	must(t, cs, "update_log", map[string]any{"log_id": logID, "grams": 80}, "Updated: 80 g Oats 303 kcal")
 	must(t, cs, "archive_log", map[string]any{"log_id": logID}, "Archived 80 g Oats (breakfast, 2026-03-14)")
 	must(t, cs, "archive_log", map[string]any{"log_id": logID}, "already archived")

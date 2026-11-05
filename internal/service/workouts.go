@@ -40,7 +40,7 @@ func checkWorkout(t store.WorkoutType, minutes *float64, date string) error {
 }
 
 func (s *Service) seenWorkout(ctx context.Context, userID, requestID string) (*LoggedWorkout, error) {
-	r, err := s.Store.FindRequest(ctx, userID, requestID)
+	r, err := s.Store.FindRequest(ctx, userID, store.RequestWorkout, requestID)
 	if err != nil || r == nil {
 		return nil, err
 	}

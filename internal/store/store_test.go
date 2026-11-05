@@ -152,10 +152,10 @@ func TestLogsAndRequests(t *testing.T) {
 	}); !errors.Is(err, ErrNotFound) {
 		t.Errorf("another user's food: %v", err)
 	}
-	if r, _ := s.FindRequest(ctx, u.ID, "req-00002"); r != nil {
+	if r, _ := s.FindRequest(ctx, u.ID, RequestFood, "req-00002"); r != nil {
 		t.Error("failed request was recorded")
 	}
-	r, err := s.FindRequest(ctx, u.ID, "req-00001")
+	r, err := s.FindRequest(ctx, u.ID, RequestFood, "req-00001")
 	if err != nil || r == nil || r.IDs[0] != ids[0] || r.Date != "2026-03-14" {
 		t.Fatalf("request = %+v, %v", r, err)
 	}

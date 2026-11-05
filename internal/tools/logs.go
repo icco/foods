@@ -32,7 +32,14 @@ func daySummary(d *service.Day) string {
 		if !l.Eaten {
 			state = "planned"
 		}
-		lines = append(lines, fmt.Sprintf("- %s: %s g %s (%s) %s [log_id=%s]", l.MealType, num(l.Grams), l.FoodName, state, nut(l.Nutrients), l.LogID))
+		extra := ""
+		if l.Note != nil {
+			extra += fmt.Sprintf(" note: %q", *l.Note)
+		}
+		if l.MindfulnessScore != nil {
+			extra += " mindfulness " + num(*l.MindfulnessScore) + "/10"
+		}
+		lines = append(lines, fmt.Sprintf("- %s: %s g %s (%s) %s%s [log_id=%s]", l.MealType, num(l.Grams), l.FoodName, state, nut(l.Nutrients), extra, l.LogID))
 	}
 	for _, w := range d.Workouts {
 		note := ""

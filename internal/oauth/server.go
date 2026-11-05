@@ -234,11 +234,15 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, "load client", err)
 		return
 	}
-	redirect := q.Get("redirect_uri")
-	if c == nil || !slices.Contains(c.RedirectURIs, redirect) {
+	i := -1
+	if c != nil {
+		i = slices.Index(c.RedirectURIs, q.Get("redirect_uri"))
+	}
+	if i < 0 {
 		http.Error(w, "Unknown client_id or redirect_uri. Reconnect the app to register again.", http.StatusBadRequest)
 		return
 	}
+	redirect := c.RedirectURIs[i]
 	back := func(kind, desc string) {
 		redirectWith(w, r, redirect, url.Values{"error": {kind}, "error_description": {desc}, "state": {q.Get("state")}, "iss": {s.BaseURL}})
 	}
@@ -384,45 +388,70 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 		}
 		refresh := secret()
 		grant := rand.Text()
-		if err := s.DB.WithContext(ctx).Create(&Token{Hash: hash(refresh), Kind: kindRefresh, ClientID: c.ID, UserID: ac.UserID, GrantID: grant, ExpiresAt: now.Add(RefreshTTL), CreatedAt: now}).Error; err != nil {
-			s.fail(w, r, "save refresh token", err)
+		var access string
+		err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := tx.Create(&Token{Hash: hash(refresh), Kind: kindRefresh, ClientID: c.ID, UserID: ac.UserID, GrantID: grant, ExpiresAt: now.Add(RefreshTTL), CreatedAt: now}).Error; err != nil {
+				return err
+			}
+			var err error
+			access, err = s.newAccess(tx, c.ID, ac.UserID, grant)
+			return err
+		})
+		if err != nil {
+			s.fail(w, r, "issue tokens", err)
 			return
 		}
-		s.issue(w, r, c.ID, ac.UserID, grant, refresh)
+		writeTokens(w, access, refresh)
 	case "refresh_token":
 		refresh := r.PostForm.Get("refresh_token")
-		var t Token
-		res := s.DB.WithContext(ctx).Where("hash = ? AND kind = ? AND client_id = ? AND expires_at > ?", hash(refresh), kindRefresh, c.ID, now).Limit(1).Find(&t)
-		if res.Error != nil {
-			s.fail(w, r, "load refresh token", res.Error)
-			return
-		}
-		if res.RowsAffected == 0 {
+		var access string
+		// Locking the refresh token makes a concurrent revoke wait, so the revoke also sees the access token issued here.
+		err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			var t Token
+			res := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("hash = ? AND kind = ? AND client_id = ? AND expires_at > ?", hash(refresh), kindRefresh, c.ID, now).Limit(1).Find(&t)
+			if res.Error != nil {
+				return res.Error
+			}
+			if res.RowsAffected == 0 {
+				return errRevoked
+			}
+			u, err := s.Users.GetUser(ctx, t.UserID)
+			if err != nil || !s.allowedEmail(u.Email) {
+				return errNotAllowed
+			}
+			if err := tx.Model(&t).Update("expires_at", now.Add(RefreshTTL)).Error; err != nil {
+				return err
+			}
+			access, err = s.newAccess(tx, c.ID, t.UserID, t.GrantID)
+			return err
+		})
+		switch {
+		case errors.Is(err, errRevoked):
 			oauthError(w, http.StatusBadRequest, "invalid_grant", "The refresh token is unknown, revoked or expired.")
-			return
-		}
-		u, err := s.Users.GetUser(ctx, t.UserID)
-		if err != nil || !s.allowedEmail(u.Email) {
+		case errors.Is(err, errNotAllowed):
 			oauthError(w, http.StatusBadRequest, "invalid_grant", "This account may no longer use this server.")
-			return
+		case err != nil:
+			s.fail(w, r, "refresh", err)
+		default:
+			writeTokens(w, access, refresh)
 		}
-		if err := s.DB.WithContext(ctx).Model(&t).Update("expires_at", now.Add(RefreshTTL)).Error; err != nil {
-			s.fail(w, r, "extend refresh token", err)
-			return
-		}
-		s.issue(w, r, c.ID, t.UserID, t.GrantID, refresh)
 	default:
 		oauthError(w, http.StatusBadRequest, "unsupported_grant_type", "Use authorization_code or refresh_token.")
 	}
 }
 
-func (s *Server) issue(w http.ResponseWriter, r *http.Request, clientID, userID, grant, refresh string) {
+var (
+	errRevoked    = errors.New("refresh token unknown, revoked or expired")
+	errNotAllowed = errors.New("user not allowed")
+)
+
+func (s *Server) newAccess(tx *gorm.DB, clientID, userID, grant string) (string, error) {
 	access := secret()
 	now := s.Now()
-	if err := s.DB.WithContext(r.Context()).Create(&Token{Hash: hash(access), Kind: kindAccess, ClientID: clientID, UserID: userID, GrantID: grant, ExpiresAt: now.Add(AccessTTL), CreatedAt: now}).Error; err != nil {
-		s.fail(w, r, "save access token", err)
-		return
-	}
+	return access, tx.Create(&Token{Hash: hash(access), Kind: kindAccess, ClientID: clientID, UserID: userID, GrantID: grant, ExpiresAt: now.Add(AccessTTL), CreatedAt: now}).Error
+}
+
+func writeTokens(w http.ResponseWriter, access, refresh string) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"access_token": access, "token_type": "Bearer", "expires_in": int(AccessTTL.Seconds()), "refresh_token": refresh, "scope": Scope,
 	})
@@ -440,21 +469,20 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusUnauthorized, "invalid_client", "Client authentication failed.")
 		return
 	}
-	var t Token
-	res := s.DB.WithContext(r.Context()).Where("hash = ? AND client_id = ?", hash(r.PostForm.Get("token")), c.ID).Limit(1).Find(&t)
-	if res.Error != nil {
-		s.fail(w, r, "load token", res.Error)
-		return
-	}
-	if res.RowsAffected > 0 {
-		q := s.DB.WithContext(r.Context()).Where("hash = ?", t.Hash)
+	err = s.DB.WithContext(r.Context()).Transaction(func(tx *gorm.DB) error {
+		var t Token
+		res := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("hash = ? AND client_id = ?", hash(r.PostForm.Get("token")), c.ID).Limit(1).Find(&t)
+		if res.Error != nil || res.RowsAffected == 0 {
+			return res.Error
+		}
 		if t.Kind == kindRefresh {
-			q = s.DB.WithContext(r.Context()).Where("grant_id = ?", t.GrantID)
+			return tx.Where("grant_id = ?", t.GrantID).Delete(&Token{}).Error
 		}
-		if err := q.Delete(&Token{}).Error; err != nil {
-			s.fail(w, r, "revoke token", err)
-			return
-		}
+		return tx.Where("hash = ?", t.Hash).Delete(&Token{}).Error
+	})
+	if err != nil {
+		s.fail(w, r, "revoke token", err)
+		return
 	}
 	w.WriteHeader(http.StatusOK)
 }

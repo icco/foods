@@ -115,17 +115,19 @@ func run(ctx context.Context, getenv func(string) string, log *zap.SugaredLogger
 		return err
 	}
 	srv := &http.Server{Addr: ":" + cfg.Port, Handler: h, ReadHeaderTimeout: 10 * time.Second}
+	drained := make(chan error, 1)
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			log.Warnw("shutdown", zap.Error(err))
-		}
+		drained <- srv.Shutdown(shutdownCtx)
 	}()
 	log.Infow("listening", "addr", srv.Addr, "mcp", cfg.BaseURL+"/mcp")
 	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("serve: %w", err)
+	}
+	if err := <-drained; err != nil {
+		return fmt.Errorf("shutdown: %w", err)
 	}
 	return nil
 }

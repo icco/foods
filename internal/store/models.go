@@ -127,10 +127,17 @@ type Workout struct {
 	UpdatedAt       time.Time
 }
 
+// Request kinds keep each tool's client_request_id values apart.
+const (
+	RequestFood    = "food"
+	RequestWorkout = "workout"
+)
+
 // RequestLog remembers each logging request by the id the assistant sent, so
 // a retried request is not saved twice.
 type RequestLog struct {
 	UserID    string   `gorm:"primaryKey"`
+	Kind      string   `gorm:"primaryKey"`
 	RequestID string   `gorm:"primaryKey"`
 	Date      string   `gorm:"type:varchar(10);not null"`
 	IDs       []string `gorm:"serializer:json;not null"`

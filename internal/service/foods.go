@@ -53,7 +53,7 @@ type SearchResult struct {
 // plausible rejects outside rows with impossible values; nothing tops about
 // 900 kcal per 100 g, which is pure fat.
 func plausible(v nutrition.Values) bool {
-	return v.Kcal <= 900 && v.ProteinG <= 100 && v.FatG <= 100 && v.CarbsG <= 100 && v.ProteinG+v.FatG+v.CarbsG <= 105
+	return v.Kcal <= 900 && checkPer100(v) == nil
 }
 
 // SearchFoods looks in the user's saved foods first, then in USDA and Open

@@ -63,7 +63,7 @@ func setup(t *testing.T) (*Service, string, *fakeDBs) {
 	}
 	dbs := &fakeDBs{foods: map[foodapi.Source][]foodapi.Food{
 		foodapi.USDA: {food(foodapi.USDA, "1", "Oats", 380), food(foodapi.USDA, "2", "Bad oats", 5330), food(foodapi.USDA, "3", "Oat milk", 50)},
-		foodapi.OFF:  {food(foodapi.OFF, "a", "Oat bar", 400)},
+		foodapi.OFF:  {food(foodapi.OFF, "a", "Oat bar", 400), {Source: foodapi.OFF, ExternalID: "neg", Name: "Oat salt", Per100: nutrition.Values{Kcal: 10, SodiumMg: ptr(-1000.0)}}},
 	}, down: map[foodapi.Source]bool{}}
 	s := New(st, dbs)
 	s.Now = func() time.Time { return noon }
@@ -92,7 +92,7 @@ func TestSearchAndImport(t *testing.T) {
 	if strings.Join(names, ",") != "Oats,Oat bar,Oat milk" {
 		t.Errorf("results = %v", names)
 	}
-	if len(r.Warnings) != 1 || !strings.Contains(r.Warnings[0], "Hid 1") {
+	if len(r.Warnings) != 1 || !strings.Contains(r.Warnings[0], "Hid 2") {
 		t.Errorf("warnings = %v", r.Warnings)
 	}
 
@@ -132,6 +132,8 @@ func TestSearchAndImport(t *testing.T) {
 	dbs.down = map[foodapi.Source]bool{}
 
 	_, err = s.ImportFood(ctx, uid, ImportFoodInput{ExternalSource: foodapi.USDA, ExternalID: "2"})
+	wantUserErr(t, err, "impossible")
+	_, err = s.ImportFood(ctx, uid, ImportFoodInput{ExternalSource: foodapi.OFF, ExternalID: "neg"})
 	wantUserErr(t, err, "impossible")
 	_, err = s.ImportFood(ctx, uid, ImportFoodInput{ExternalSource: foodapi.USDA, ExternalID: "404"})
 	wantUserErr(t, err, "No food")
@@ -353,6 +355,9 @@ func TestWorkoutsAndSettings(t *testing.T) {
 	again, err := s.LogWorkout(ctx, uid, LogWorkoutInput{ClientRequestID: "req-run-001", Type: "run", DurationMinutes: 30})
 	if err != nil || !again.AlreadyLogged || again.WorkoutID != w.WorkoutID {
 		t.Fatalf("again = %+v, %v", again, err)
+	}
+	if food, err := s.LogEntries(ctx, uid, LogEntriesInput{ClientRequestID: "req-run-001", WaterMl: ptr(250.0)}); err != nil || food.AlreadyLogged || food.Day.WaterMl != 250 {
+		t.Fatalf("a workout request id must not block a food log: %+v, %v", food, err)
 	}
 	upd, err := s.UpdateWorkout(ctx, uid, UpdateWorkoutInput{WorkoutID: w.WorkoutID, Type: "walk", DurationMinutes: ptr(45.0), Date: "2026-03-13", Clear: []WorkoutField{"note"}})
 	if err != nil || upd.Type != "walk" || upd.DurationMinutes != 45 || upd.Date != "2026-03-13" || upd.Note != nil {

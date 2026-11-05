@@ -156,7 +156,7 @@ func (s *Service) LogEntries(ctx context.Context, userID string, in LogEntriesIn
 	if err := checkRequestID(in.ClientRequestID); err != nil {
 		return nil, err
 	}
-	if r, err := s.Store.FindRequest(ctx, userID, in.ClientRequestID); err != nil || r != nil {
+	if r, err := s.Store.FindRequest(ctx, userID, store.RequestFood, in.ClientRequestID); err != nil || r != nil {
 		if err != nil {
 			return nil, err
 		}
@@ -239,7 +239,7 @@ func (s *Service) LogEntries(ctx context.Context, userID string, in LogEntriesIn
 	}
 	created, err := s.Store.CreateFoodLogs(ctx, userID, in.ClientRequestID, date, logs)
 	if errors.Is(err, store.ErrDuplicate) {
-		r, ferr := s.Store.FindRequest(ctx, userID, in.ClientRequestID)
+		r, ferr := s.Store.FindRequest(ctx, userID, store.RequestFood, in.ClientRequestID)
 		if ferr != nil || r == nil {
 			return nil, errors.Join(err, ferr)
 		}
