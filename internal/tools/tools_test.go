@@ -77,7 +77,11 @@ func connect(t *testing.T) (*mcp.ClientSession, *service.Service, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { cs.Close() })
+	t.Cleanup(func() {
+		if err := cs.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	return cs, svc, u.ID
 }
 

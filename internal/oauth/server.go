@@ -224,7 +224,7 @@ func redirectWith(w http.ResponseWriter, r *http.Request, to string, params url.
 		q[k] = v
 	}
 	u.RawQuery = q.Encode()
-	http.Redirect(w, r, u.String(), http.StatusFound)
+	http.Redirect(w, r, u.String(), http.StatusFound) //nolint:gosec // callers pass only redirect URIs checked against the client registration
 }
 
 func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {

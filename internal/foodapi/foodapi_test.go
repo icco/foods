@@ -36,23 +36,23 @@ const offProductJSON = `{"status":1,"product":{"product_name":"Skyr","brands":"I
 func fake(t *testing.T) *Client {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/usda/foods/search":
+		switch r.URL.Path {
+		case "/usda/foods/search":
 			if r.Header.Get("X-Api-Key") != "k" {
 				t.Errorf("missing api key")
 			}
 			_, _ = w.Write([]byte(usdaSearch))
-		case r.URL.Path == "/usda/food/111":
+		case "/usda/food/111":
 			_, _ = w.Write([]byte(usdaDetail))
-		case r.URL.Path == "/off/search":
+		case "/off/search":
 			if r.URL.Query().Get("q") == "boom" {
 				w.WriteHeader(http.StatusServiceUnavailable)
 				return
 			}
 			_, _ = w.Write([]byte(offSearch))
-		case r.URL.Path == "/off/products/0001.json":
+		case "/off/products/0001.json":
 			_, _ = w.Write([]byte(offProductJSON))
-		case r.URL.Path == "/off/products/bad.json":
+		case "/off/products/bad.json":
 			_, _ = w.Write([]byte(`not json`))
 		default:
 			http.NotFound(w, r)

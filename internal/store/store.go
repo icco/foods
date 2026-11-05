@@ -103,7 +103,7 @@ func (s *Store) CreateFood(ctx context.Context, userID string, f *Food) error {
 // GetFood returns one of the user's foods, archived or not.
 func (s *Store) GetFood(ctx context.Context, userID, foodID string) (*Food, error) {
 	var f Food
-	if _, err := uuid.Parse(foodID); err != nil {
+	if uuid.Validate(foodID) != nil {
 		return nil, ErrNotFound
 	}
 	res := s.db.WithContext(ctx).Where("id = ? AND user_id = ?", foodID, userID).Limit(1).Find(&f)
@@ -121,7 +121,7 @@ func (s *Store) GetFood(ctx context.Context, userID, foodID string) (*Food, erro
 func (s *Store) GetFoods(ctx context.Context, userID string, ids []string) (map[string]*Food, error) {
 	var valid []string
 	for _, id := range ids {
-		if _, err := uuid.Parse(id); err == nil && !slices.Contains(valid, id) {
+		if uuid.Validate(id) == nil && !slices.Contains(valid, id) {
 			valid = append(valid, id)
 		}
 	}
@@ -187,7 +187,7 @@ func (s *Store) FindWaterFood(ctx context.Context, userID string) (*Food, error)
 // UpdateRow changes the given columns on one of the user's rows of model and
 // reloads it into model. Fields not in changes keep their value.
 func (s *Store) UpdateRow(ctx context.Context, userID, id string, model any, changes map[string]any) error {
-	if _, err := uuid.Parse(id); err != nil {
+	if uuid.Validate(id) != nil {
 		return ErrNotFound
 	}
 	db := s.db.WithContext(ctx)
@@ -254,7 +254,7 @@ func (s *Store) CreateFoodLogs(ctx context.Context, userID, requestID, date stri
 
 // GetFoodLog returns one active log.
 func (s *Store) GetFoodLog(ctx context.Context, userID, logID string) (*FoodLog, error) {
-	if _, err := uuid.Parse(logID); err != nil {
+	if uuid.Validate(logID) != nil {
 		return nil, ErrNotFound
 	}
 	var l FoodLog
@@ -271,9 +271,6 @@ func (s *Store) GetFoodLog(ctx context.Context, userID, logID string) (*FoodLog,
 // Archive hides one of the user's active rows of model. It reports whether
 // anything changed.
 func (s *Store) Archive(ctx context.Context, userID, id string, model any) (bool, error) {
-	if _, err := uuid.Parse(id); err != nil {
-		return false, nil
-	}
 	now := time.Now()
 	res := s.db.WithContext(ctx).Model(model).Where("id = ? AND user_id = ? AND archived_at IS NULL", id, userID).
 		Updates(map[string]any{"archived_at": now, "updated_at": now})
@@ -321,7 +318,7 @@ func (s *Store) CreateWorkout(ctx context.Context, userID, requestID string, w *
 
 // GetWorkout returns one active workout.
 func (s *Store) GetWorkout(ctx context.Context, userID, workoutID string) (*Workout, error) {
-	if _, err := uuid.Parse(workoutID); err != nil {
+	if uuid.Validate(workoutID) != nil {
 		return nil, ErrNotFound
 	}
 	var w Workout

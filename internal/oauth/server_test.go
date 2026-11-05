@@ -1,11 +1,13 @@
 package oauth
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -88,11 +90,9 @@ func setup(t *testing.T) *env {
 
 func (e *env) register(t *testing.T, body string) (int, map[string]any) {
 	t.Helper()
-	res, err := e.http.Post(e.ts.URL+"/register", "application/json", strings.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer res.Body.Close()
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, e.ts.URL+"/register", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	res := e.do(t, req)
 	var out map[string]any
 	_ = json.NewDecoder(res.Body).Decode(&out)
 	return res.StatusCode, out
@@ -101,11 +101,10 @@ func (e *env) register(t *testing.T, body string) (int, map[string]any) {
 // authorize runs the browser part and returns the final redirect's query.
 func (e *env) authorize(t *testing.T, params url.Values) url.Values {
 	t.Helper()
-	res, err := e.http.Get(e.ts.URL + "/authorize?" + params.Encode())
+	res, err := e.get(t, e.ts.URL+"/authorize?"+params.Encode())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
 	if res.StatusCode != http.StatusFound {
 		t.Fatalf("authorize ended with %d", res.StatusCode)
 	}
@@ -118,16 +117,12 @@ func (e *env) authorize(t *testing.T, params url.Values) url.Values {
 
 func (e *env) post(t *testing.T, path string, form url.Values, user, pass string) (int, map[string]any) {
 	t.Helper()
-	req, _ := http.NewRequest(http.MethodPost, e.ts.URL+path, strings.NewReader(form.Encode()))
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, e.ts.URL+path, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	if user != "" {
 		req.SetBasicAuth(url.QueryEscape(user), url.QueryEscape(pass))
 	}
-	res, err := e.http.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer res.Body.Close()
+	res := e.do(t, req)
 	var out map[string]any
 	_ = json.NewDecoder(res.Body).Decode(&out)
 	return res.StatusCode, out
@@ -142,20 +137,18 @@ func TestFullFlow(t *testing.T) {
 	e := setup(t)
 	ctx := context.Background()
 
-	res, err := e.http.Get(e.ts.URL + "/.well-known/oauth-authorization-server")
+	res, err := e.get(t, e.ts.URL+"/.well-known/oauth-authorization-server")
 	if err != nil {
 		t.Fatal(err)
 	}
 	var meta map[string]any
 	_ = json.NewDecoder(res.Body).Decode(&meta)
-	res.Body.Close()
 	if meta["registration_endpoint"] != e.ts.URL+"/register" || meta["issuer"] != e.ts.URL {
 		t.Errorf("metadata = %v", meta)
 	}
-	res, _ = e.http.Get(e.ts.URL + "/.well-known/oauth-protected-resource/mcp")
+	res, _ = e.get(t, e.ts.URL+"/.well-known/oauth-protected-resource/mcp")
 	var prm map[string]any
 	_ = json.NewDecoder(res.Body).Decode(&prm)
-	res.Body.Close()
 	if prm["resource"] != e.ts.URL+"/mcp" || e.srv.ResourceMetadataURL() != e.ts.URL+"/.well-known/oauth-protected-resource/mcp" {
 		t.Errorf("resource metadata = %v", prm)
 	}
@@ -273,25 +266,22 @@ func TestPublicClientAndRefusals(t *testing.T) {
 			p[kk] = vv
 		}
 		p.Set(k, v)
-		res, err := e.http.Get(e.ts.URL + "/authorize?" + p.Encode())
+		res, err := e.get(t, e.ts.URL+"/authorize?"+p.Encode())
 		if err != nil {
 			t.Fatal(err)
 		}
-		res.Body.Close()
 		loc, _ := url.Parse(res.Header.Get("Location"))
 		if res.StatusCode != http.StatusFound || loc.Query().Get("error") == "" {
 			t.Errorf("%s=%s: %d %s", k, v, res.StatusCode, loc)
 		}
 	}
 	p := url.Values{"client_id": {id}, "redirect_uri": {"https://claude.ai/other"}}
-	res, _ := e.http.Get(e.ts.URL + "/authorize?" + p.Encode())
-	res.Body.Close()
+	res, _ := e.get(t, e.ts.URL+"/authorize?"+p.Encode())
 	if res.StatusCode != http.StatusBadRequest {
 		t.Errorf("unregistered redirect = %d", res.StatusCode)
 	}
 
-	res, _ = e.http.Get(e.ts.URL + "/callback?state=forged&code=google-code")
-	res.Body.Close()
+	res, _ = e.get(t, e.ts.URL+"/callback?state=forged&code=google-code")
 	if res.StatusCode != http.StatusBadRequest {
 		t.Errorf("callback without cookie = %d", res.StatusCode)
 	}
@@ -302,11 +292,10 @@ func TestPublicClientAndRefusals(t *testing.T) {
 		t.Errorf("unverified email = %v", q)
 	}
 	e.google.fail = true
-	res, err := e.http.Get(e.ts.URL + "/authorize?" + base.Encode())
+	res, err := e.get(t, e.ts.URL+"/authorize?"+base.Encode())
 	if err != nil {
 		t.Fatal(err)
 	}
-	res.Body.Close()
 	if res.StatusCode != http.StatusInternalServerError {
 		t.Errorf("upstream failure = %d", res.StatusCode)
 	}
@@ -317,4 +306,37 @@ func TestPublicClientAndRefusals(t *testing.T) {
 	if !pkceOK(strings.Repeat("a", 43), challenge(strings.Repeat("a", 43))) || pkceOK("short", challenge("short")) {
 		t.Error("pkceOK")
 	}
+}
+
+// reply is a response whose body was already read and closed.
+type reply struct {
+	StatusCode int
+	Header     http.Header
+	Body       *bytes.Reader
+}
+
+// do sends req and returns the response with its body already read.
+func (e *env) do(t *testing.T, req *http.Request) *reply {
+	t.Helper()
+	res, err := e.http.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(res.Body)
+	if cerr := res.Body.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &reply{StatusCode: res.StatusCode, Header: res.Header, Body: bytes.NewReader(body)}
+}
+
+func (e *env) get(t *testing.T, u string) (*reply, error) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	return e.do(t, req), nil
 }
