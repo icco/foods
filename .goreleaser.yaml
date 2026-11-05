@@ -1,20 +1,29 @@
 # GoReleaser configuration.
 # https://goreleaser.com
 version: 2
-project_name: PROJECT_NAME
-# This is a library, not a command: there is nothing to compile or ship. The
-# release exists for the changelog and the tag that `go get` resolves against.
+project_name: foods
 builds:
-  - skip: true
+  - main: .
+    binary: foods
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
 changelog:
   use: git
   sort: asc
   groups:
     - title: Features
-      regexp: '^feat'
+      regexp: ^feat
       order: 0
     - title: Bug Fixes
-      regexp: '^fix'
+      regexp: ^fix
       order: 1
     - title: Other Changes
       order: 999
@@ -27,10 +36,8 @@ changelog:
 release:
   github:
     owner: icco
-    name: PROJECT_NAME
+    name: foods
   mode: replace
   footer: |
     ---
-    Install with `go get go.icco.me/PROJECT_NAME@{{ .Tag }}`.
-
-    **Full Changelog**: https://github.com/icco/PROJECT_NAME/compare/{{ .PreviousTag }}...{{ .Tag }}
+    **Full Changelog**: https://github.com/icco/foods/compare/{{ .PreviousTag }}...{{ .Tag }}
