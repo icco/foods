@@ -98,4 +98,3 @@ func checkRequestID(id string) error {
 	}
 	return nil
 }
-
