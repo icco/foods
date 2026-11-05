@@ -84,7 +84,7 @@ type FoodLog struct {
 	Food             Food      `gorm:"foreignKey:FoodID"`
 	Grams            float64   `gorm:"not null;check:grams > 0 AND grams <= 5000"`
 	Note             *string   `gorm:""`
-	Eaten            bool      `gorm:"not null;default:true"`
+	Eaten            bool      `gorm:"not null"`
 	MindfulnessScore *float64  `gorm:""`
 	EatenAt          time.Time `gorm:"not null"`
 	ArchivedAt       *time.Time
