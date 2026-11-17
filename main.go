@@ -92,7 +92,6 @@ func loadConfig(getenv func(string) string) (*config, error) {
 
 func main() {
 	log := logging.Must(logging.NewLogger(serviceName))
-	defer logging.Sync(log)
 	if err := runMain(log); err != nil {
 		log.Errorw("exit", zap.Error(err))
 		os.Exit(1)
@@ -100,6 +99,7 @@ func main() {
 }
 
 func runMain(log *zap.SugaredLogger) error {
+	defer logging.Sync(log)
 	ctx, stop := signal.NotifyContext(logging.NewContext(context.Background(), log), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	shutdown, err := tracing.Init(ctx, serviceName)
