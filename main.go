@@ -23,10 +23,13 @@ import (
 	"go.icco.me/foods/internal/store"
 	"go.icco.me/foods/internal/tools"
 	"go.icco.me/gutil/logging"
+	"go.icco.me/gutil/tracing"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.uber.org/zap"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	gormtracing "gorm.io/plugin/opentelemetry/tracing"
 )
 
 const serviceName = "foods"
@@ -92,6 +95,17 @@ func main() {
 	defer logging.Sync(log)
 	ctx, stop := signal.NotifyContext(logging.NewContext(context.Background(), log), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	shutdown, err := tracing.Init(ctx, serviceName)
+	if err != nil {
+		log.Fatalw("init tracing", zap.Error(err))
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdown(shutdownCtx); err != nil {
+			log.Warnw("tracing shutdown", zap.Error(err))
+		}
+	}()
 	if err := run(ctx, os.Getenv, log); err != nil {
 		log.Fatalw("exit", zap.Error(err))
 	}
@@ -105,6 +119,9 @@ func run(ctx context.Context, getenv func(string) string, log *zap.SugaredLogger
 	db, err := gorm.Open(postgres.Open(cfg.DatabaseURL), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
+	}
+	if err := db.Use(gormtracing.NewPlugin(gormtracing.WithoutMetrics())); err != nil {
+		return fmt.Errorf("use tracing plugin: %w", err)
 	}
 	google, err := oauth.NewGoogle(ctx, cfg.GoogleID, cfg.GoogleSecret, cfg.BaseURL+"/callback")
 	if err != nil {
@@ -166,5 +183,13 @@ func newHandler(ctx context.Context, cfg *config, db *gorm.DB, up oauth.Upstream
 	})
 	as.Routes(r)
 	r.Handle("/mcp", protected)
-	return r, nil
+	wrapped := otelhttp.NewHandler(r, "foods", otelhttp.WithFilter(func(req *http.Request) bool {
+		switch req.URL.Path {
+		case "/healthz", "/metrics":
+			return false
+		default:
+			return true
+		}
+	}))
+	return wrapped, nil
 }

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"go.icco.me/foods/internal/nutrition"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // Source names an outside food database.
@@ -63,7 +64,7 @@ type Client struct {
 // New returns a Client for the public endpoints.
 func New(usdaKey string) *Client {
 	return &Client{
-		HTTP:        &http.Client{Timeout: 6 * time.Second},
+		HTTP:        &http.Client{Timeout: 6 * time.Second, Transport: otelhttp.NewTransport(http.DefaultTransport)},
 		USDAKey:     usdaKey,
 		USDABase:    "https://api.nal.usda.gov/fdc/v1",
 		OFFSearch:   "https://search.openfoodfacts.org/search",
