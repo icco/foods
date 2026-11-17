@@ -93,11 +93,18 @@ func loadConfig(getenv func(string) string) (*config, error) {
 func main() {
 	log := logging.Must(logging.NewLogger(serviceName))
 	defer logging.Sync(log)
+	if err := runMain(log); err != nil {
+		log.Errorw("exit", zap.Error(err))
+		os.Exit(1)
+	}
+}
+
+func runMain(log *zap.SugaredLogger) error {
 	ctx, stop := signal.NotifyContext(logging.NewContext(context.Background(), log), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	shutdown, err := tracing.Init(ctx, serviceName)
 	if err != nil {
-		log.Fatalw("init tracing", zap.Error(err))
+		return fmt.Errorf("init tracing: %w", err)
 	}
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -106,9 +113,7 @@ func main() {
 			log.Warnw("tracing shutdown", zap.Error(err))
 		}
 	}()
-	if err := run(ctx, os.Getenv, log); err != nil {
-		log.Fatalw("exit", zap.Error(err))
-	}
+	return run(ctx, os.Getenv, log)
 }
 
 func run(ctx context.Context, getenv func(string) string, log *zap.SugaredLogger) error {
@@ -120,7 +125,7 @@ func run(ctx context.Context, getenv func(string) string, log *zap.SugaredLogger
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
-	if err := db.Use(gormtracing.NewPlugin(gormtracing.WithoutMetrics())); err != nil {
+	if err := db.Use(gormtracing.NewPlugin(gormtracing.WithoutMetrics(), gormtracing.WithoutQueryVariables())); err != nil {
 		return fmt.Errorf("use tracing plugin: %w", err)
 	}
 	google, err := oauth.NewGoogle(ctx, cfg.GoogleID, cfg.GoogleSecret, cfg.BaseURL+"/callback")
