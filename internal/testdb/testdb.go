@@ -6,9 +6,11 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	embeddedpostgres "github.com/fergusstrange/embedded-postgres"
 	"gorm.io/driver/postgres"
@@ -24,8 +26,8 @@ func Main(m *testing.M) {
 }
 
 func run(m *testing.M) int {
-	if dsn = os.Getenv("TEST_DATABASE_URL"); dsn != "" {
-		return m.Run()
+	if base := os.Getenv("TEST_DATABASE_URL"); base != "" {
+		return runShared(m, base)
 	}
 	dir, err := os.MkdirTemp("", "foods-pg")
 	if err != nil {
@@ -56,6 +58,39 @@ func run(m *testing.M) int {
 		}
 	}()
 	dsn = fmt.Sprintf("host=localhost port=%d user=postgres password=postgres dbname=postgres sslmode=disable", port)
+	return m.Run()
+}
+
+// runShared isolates each test binary in its own database, since packages run in parallel and concurrent AutoMigrate calls collide.
+func runShared(m *testing.M, base string) int {
+	u, err := url.Parse(base)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "parse TEST_DATABASE_URL:", err)
+		return 1
+	}
+	admin, err := gorm.Open(postgres.Open(base), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "open TEST_DATABASE_URL:", err)
+		return 1
+	}
+	sqlDB, err := admin.DB()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	defer sqlDB.Close()
+	name := fmt.Sprintf("test_%d_%d", os.Getpid(), time.Now().UnixNano())
+	if err := admin.Exec(fmt.Sprintf("CREATE DATABASE %q", name)).Error; err != nil {
+		fmt.Fprintln(os.Stderr, "create test database:", err)
+		return 1
+	}
+	defer func() {
+		if err := admin.Exec(fmt.Sprintf("DROP DATABASE %q WITH (FORCE)", name)).Error; err != nil {
+			fmt.Fprintln(os.Stderr, "drop test database:", err)
+		}
+	}()
+	u.Path = "/" + name
+	dsn = u.String()
 	return m.Run()
 }
 
